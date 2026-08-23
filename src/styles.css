@@ -1,0 +1,484 @@
+/*
+ * The window wears whichever theme is selected. Every colour here comes from a
+ * custom property that App.tsx rewrites on selection, so the interface is its
+ * own preview.
+ */
+
+:root {
+  --bg: #eff1f5;
+  --fg: #4c4f69;
+  --surface: #e6e9ef;
+  --accent: #8839ef;
+  --subtle: #9ca0b0;
+  --ok: #40a02b;
+  --warn: #df8e1d;
+  --bad: #d20f39;
+  --selection: #ccd0da;
+
+  --radius: 10px;
+  --gap: 16px;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+
+  color-scheme: light dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--fg);
+  transition: background 200ms ease, color 200ms ease;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 56px 28px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.app--loading {
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  color: var(--subtle);
+}
+
+/* Header ------------------------------------------------------------------ */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  flex-wrap: wrap;
+}
+
+h1 {
+  margin: 0;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.header__sub {
+  margin: 4px 0 0;
+  color: var(--subtle);
+  font-size: 14px;
+}
+
+.toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 20px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--bg);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+
+.toggle:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.toggle__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+}
+
+.toggle__theme {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+/* Sections ---------------------------------------------------------------- */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.section__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+
+.section__note {
+  font-size: 13px;
+  color: var(--subtle);
+}
+
+.family__name {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--subtle);
+}
+
+.family + .family {
+  margin-top: 8px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+/* Theme cards ------------------------------------------------------------- */
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+}
+
+.card--on {
+  border-color: var(--accent);
+}
+
+.card__foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px 2px;
+}
+
+.card__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.card__mode {
+  font-size: 11px;
+  color: var(--subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.card__applied {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Terminal preview -------------------------------------------------------- */
+
+.preview {
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.preview__bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 9px;
+}
+
+.preview__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.preview__title {
+  margin-left: 6px;
+  font-size: 11px;
+}
+
+.preview__body {
+  padding: 10px 12px;
+}
+
+.preview--compact .preview__body {
+  padding: 8px 10px;
+  font-size: 11px;
+}
+
+.preview__line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preview__ansi {
+  display: flex;
+  height: 8px;
+}
+
+.preview__swatch {
+  flex: 1;
+}
+
+/* Targets ----------------------------------------------------------------- */
+
+.targets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.target {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.target--missing {
+  opacity: 0.55;
+}
+
+.target__toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+
+.target__name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.target__detail {
+  margin: 3px 0 0 25px;
+  font-size: 13px;
+  color: var(--subtle);
+}
+
+.target__paths,
+.outcome__files {
+  margin: 5px 0 0 25px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--selection);
+  color: var(--fg);
+}
+
+.options,
+.pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  padding: 4px 2px;
+  font-size: 13px;
+}
+
+.options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.pair {
+  gap: 20px;
+}
+
+.pair label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--subtle);
+}
+
+select {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--selection);
+  background: var(--surface);
+  color: var(--fg);
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+}
+
+/* Apply and outcomes ------------------------------------------------------ */
+
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  bottom: 0;
+  /* Opaque rather than a gradient: the button sits over scrolling content, and
+     a translucent strip let theme cards show through behind the text. */
+  padding: 16px 0 12px;
+  background: var(--bg);
+  box-shadow: 0 -12px 20px -12px rgb(0 0 0 / 0.25);
+}
+
+.apply {
+  align-self: flex-start;
+  padding: 12px 26px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--bg);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.apply:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.outcomes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.outcome {
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border-left: 3px solid var(--subtle);
+}
+
+.outcome--applied {
+  border-left-color: var(--ok);
+}
+.outcome--pending {
+  border-left-color: var(--warn);
+}
+.outcome--failed {
+  border-left-color: var(--bad);
+}
+
+.outcome__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.outcome__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--selection);
+  color: var(--fg);
+}
+
+.badge--applied {
+  background: var(--ok);
+  color: var(--bg);
+}
+.badge--pending {
+  background: var(--warn);
+  color: var(--bg);
+}
+.badge--failed {
+  background: var(--bad);
+  color: var(--bg);
+}
+
+.outcome__message {
+  margin: 5px 0 0;
+  font-size: 13px;
+}
+
+.outcome__followup {
+  margin: 5px 0 0;
+  font-size: 12px;
+  color: var(--subtle);
+}
+
+.error {
+  margin: 0;
+  padding: 11px 14px;
+  border-radius: var(--radius);
+  background: var(--bad);
+  color: var(--bg);
+  font-size: 13px;
+}

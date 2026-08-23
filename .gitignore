@@ -1,0 +1,12 @@
+node_modules/
+dist/
+target/
+.DS_Store
+*.log
+
+# Tauri generates these from tauri.conf.json at build time.
+src-tauri/gen/schemas/
+
+# The icon generator also emits iOS and Android sets; this is a desktop app.
+src-tauri/icons/ios/
+src-tauri/icons/android/

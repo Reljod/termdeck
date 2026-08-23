@@ -1,0 +1,4 @@
+# Vite ships esbuild as a platform binary that its install script puts in place,
+# so the build has to be allowed to run or `vite build` cannot start.
+allowBuilds:
+  esbuild: true
