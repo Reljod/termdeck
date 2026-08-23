@@ -15,11 +15,11 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::Result;
 
 use crate::edit::{self, Placement};
+use crate::which;
 use crate::theme::Theme;
 
 use super::{Detection, Outcome, Target, NVIM};
@@ -202,11 +202,7 @@ pub fn live_lua(theme: &Theme, colorscheme: &str) -> String {
 }
 
 fn nvim_installed() -> bool {
-    Command::new("nvim")
-        .arg("--version")
-        .output()
-        .map(|out| out.status.success())
-        .unwrap_or(false)
+    which::exists("nvim")
 }
 
 impl Target for Neovim {
@@ -331,7 +327,10 @@ impl Target for Neovim {
         let mut failures = Vec::new();
 
         for socket in &sockets {
-            let out = Command::new("nvim")
+            let Some(mut nvim) = which::command("nvim") else {
+                break;
+            };
+            let out = nvim
                 .arg("--server")
                 .arg(socket)
                 .arg("--remote-expr")

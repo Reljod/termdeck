@@ -309,7 +309,7 @@ export default function App() {
         >
           {busy ? "Applying…" : `Apply ${theme?.name ?? ""}`}
         </button>
-        <Outcomes outcomes={outcomes} />
+        <Outcomes outcomes={outcomes} onDismiss={() => setOutcomes([])} />
       </footer>
     </main>
   );

@@ -6,11 +6,11 @@
 //! to come *after* that line.
 
 use std::path::PathBuf;
-use std::process::Command;
 
 use anyhow::Result;
 
 use crate::edit::{self, Placement};
+use crate::which;
 use crate::theme::{Theme, TmuxStyle};
 
 use super::{Detection, Outcome, Target, TMUX};
@@ -32,19 +32,17 @@ pub fn config_path() -> PathBuf {
 
 /// Whether a tmux server is running, which decides if we can apply live.
 fn server_running() -> bool {
-    Command::new("tmux")
-        .arg("list-sessions")
+    let Some(mut tmux) = which::command("tmux") else {
+        return false;
+    };
+    tmux.arg("list-sessions")
         .output()
         .map(|out| out.status.success())
         .unwrap_or(false)
 }
 
 fn tmux_installed() -> bool {
-    Command::new("tmux")
-        .arg("-V")
-        .output()
-        .map(|out| out.status.success())
-        .unwrap_or(false)
+    which::exists("tmux")
 }
 
 /// The contents of the flavour block.
@@ -183,10 +181,10 @@ impl Target for Tmux {
             ));
         }
 
-        let sourced = Command::new("tmux")
-            .arg("source-file")
-            .arg(&path)
-            .output()?;
+        let Some(mut tmux) = which::command("tmux") else {
+            return Ok(Outcome::skipped(TMUX, "tmux", "tmux is not installed"));
+        };
+        let sourced = tmux.arg("source-file").arg(&path).output()?;
 
         if sourced.status.success() {
             Ok(Outcome::applied(

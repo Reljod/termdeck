@@ -10,6 +10,7 @@ pub mod edit;
 pub mod settings;
 pub mod targets;
 pub mod theme;
+pub mod which;
 
 use anyhow::{anyhow, Result};
 

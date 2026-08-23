@@ -1,16 +1,39 @@
 //! iTerm2.
 //!
-//! iTerm2 needs two different things done, because neither one alone is enough.
+//! Getting a theme to stick here takes two mechanisms, because neither one
+//! alone covers both what is open now and what opens later.
 //!
-//! AppleScript reaches every session that is already open and recolours it now.
-//! That is the visible half of the toggle, but it does not persist: a window
-//! opened afterwards would come back with the old palette.
+//! AppleScript reaches every session that is already open and recolours it
+//! immediately. That is the visible half, but it only touches sessions: a new
+//! tab reads its colours from a profile, so it comes back with the old palette.
 //!
-//! So the palette is also written into the preferences plist, which is what new
-//! windows read. The catch is that iTerm2 keeps its preferences in memory while
-//! it runs and writes them out on quit, so a plist edit made while iTerm2 is
-//! running can be overwritten when it exits. That is why the outcome says so
-//! rather than claiming a clean success.
+//! Writing the preferences plist looks like the answer and is not. iTerm2 holds
+//! its preferences in memory the whole time it runs and writes them back out
+//! when it quits, so an edit made while it is running is discarded — the theme
+//! appears to persist and then silently does not. The plist is therefore only
+//! written when iTerm2 is closed, when it genuinely is the right place.
+//!
+//! The mechanism that does work is a dynamic profile. iTerm2 watches
+//! `~/Library/Application Support/iTerm2/DynamicProfiles/`, reloads anything
+//! written there within a second, and never writes over it. TermDeck keeps one
+//! profile there, copying the user's own default profile so their font and
+//! keybindings come along, and overwriting only the colours. Once that profile
+//! is the default, new windows pick up every theme change with nothing left to
+//! do.
+//!
+//! Two things about that profile are easy to get wrong and were:
+//!
+//! It copies rather than inherits. `Dynamic Profile Parent Name` looks like the
+//! right way to keep the user's settings, but for colours the parent wins over
+//! the child, so an inheriting profile shows the parent's palette and the theme
+//! never appears at all.
+//!
+//! It turns off [`SEPARATE_LIGHT_DARK`]. A profile with that switch on ignores
+//! `Background Color` entirely and reads `Background Color (Light)` or
+//! `(Dark)` according to the system appearance, so a correctly written theme
+//! silently does nothing. Every colour is written to all three keys and the
+//! switch is turned off, which makes the theme independent of whether macOS is
+//! in light or dark mode.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -25,6 +48,13 @@ use super::{Detection, Outcome, Target, ITERM2};
 
 /// Where we record which theme we last wrote, so the UI can show it.
 const THEME_KEY: &str = "TermDeckTheme";
+
+/// The identifier of the profile TermDeck maintains.
+///
+/// Fixed, so every apply updates the same profile rather than creating a new
+/// one. iTerm2 accepts any string here.
+pub const PROFILE_GUID: &str = "termdeck-managed-profile";
+pub const PROFILE_NAME: &str = "TermDeck";
 
 pub struct Iterm2;
 
@@ -51,7 +81,21 @@ pub fn color_dict(color: Rgb) -> Dictionary {
     dict
 }
 
+/// The switch that makes a profile follow the system appearance.
+///
+/// When it is on, iTerm2 ignores `Background Color` entirely and reads
+/// `Background Color (Light)` or `Background Color (Dark)` depending on whether
+/// macOS is in light or dark mode. A profile with this set silently discards
+/// every colour written to the plain keys, which looks exactly like the theme
+/// failing to persist.
+pub const SEPARATE_LIGHT_DARK: &str = "Use Separate Colors for Light and Dark Mode";
+
 /// Every colour key a theme sets, paired with its value.
+///
+/// Each colour is written three times: to the plain key, and to the `(Light)`
+/// and `(Dark)` variants. TermDeck decides what the terminal looks like, so a
+/// theme should not change again because macOS switched appearance — and
+/// writing all three means it does not matter which set iTerm2 consults.
 pub fn color_entries(theme: &Theme) -> Vec<(String, Rgb)> {
     let p = &theme.palette;
 
@@ -65,16 +109,26 @@ pub fn color_entries(theme: &Theme) -> Vec<(String, Rgb)> {
         p.selection_background,
         p.selection_foreground,
     ];
-    let mut entries: Vec<(String, Rgb)> = NAMED_KEYS
+
+    let base: Vec<(String, Rgb)> = NAMED_KEYS
         .iter()
         .zip(named)
         .map(|(key, color)| ((*key).to_string(), color))
+        .chain(
+            p.ansi
+                .indexed()
+                .into_iter()
+                .enumerate()
+                .map(|(index, color)| (format!("Ansi {index} Color"), color)),
+        )
         .collect();
 
-    for (index, color) in p.ansi.indexed().into_iter().enumerate() {
-        entries.push((format!("Ansi {index} Color"), color));
+    let mut entries = Vec::with_capacity(base.len() * 3);
+    for (key, color) in base {
+        entries.push((format!("{key} (Light)"), color));
+        entries.push((format!("{key} (Dark)"), color));
+        entries.push((key, color));
     }
-
     entries
 }
 
@@ -160,6 +214,131 @@ tell application \"iTerm2\"
 end tell
 "
     )
+}
+
+/// The directory iTerm2 watches for profiles written by other programs.
+///
+/// This is the only place iTerm2 lets an outside program change a profile and
+/// have it stick. Files here are reloaded within a second of being written, and
+/// iTerm2 never writes over them — unlike the preferences plist, which it holds
+/// in memory while running and saves back on quit.
+pub fn dynamic_profiles_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join("Library/Application Support/iTerm2/DynamicProfiles")
+}
+
+pub fn dynamic_profile_path() -> PathBuf {
+    dynamic_profiles_dir().join("termdeck.json")
+}
+
+/// Converts a preferences value into the JSON a dynamic profile is written in.
+///
+/// Binary blobs and dates have no JSON equivalent and are dropped. Nothing in a
+/// profile that matters for appearance is stored that way.
+fn plist_to_json(value: &Value) -> Option<serde_json::Value> {
+    use serde_json::{Map, Number, Value as Json};
+
+    Some(match value {
+        Value::String(text) => Json::String(text.clone()),
+        Value::Boolean(flag) => Json::Bool(*flag),
+        Value::Integer(number) => Json::Number(number.as_signed().map(Number::from)?),
+        Value::Real(number) => Json::Number(Number::from_f64(*number)?),
+        Value::Array(items) => Json::Array(items.iter().filter_map(plist_to_json).collect()),
+        Value::Dictionary(dict) => {
+            let mut out = Map::new();
+            for (key, item) in dict {
+                if let Some(converted) = plist_to_json(item) {
+                    out.insert(key.clone(), converted);
+                }
+            }
+            Json::Object(out)
+        }
+        _ => return None,
+    })
+}
+
+/// The profile TermDeck maintains, as the JSON iTerm2 expects.
+///
+/// `base` is the user's own default profile, copied in so the managed profile
+/// keeps their font, keybindings and everything else. It is copied rather than
+/// inherited through `Dynamic Profile Parent Name` because that key does the
+/// opposite of what it looks like for colours: the parent's colours win over
+/// the child's, so a profile that inherits would never show the theme at all.
+pub fn dynamic_profile(theme: &Theme, base: Option<&Dictionary>) -> serde_json::Value {
+    use serde_json::{json, Map, Value as Json};
+
+    let mut profile = Map::new();
+
+    if let Some(base) = base {
+        for (key, value) in base {
+            // Identity is ours; everything else is theirs.
+            if key == "Guid" || key == "Name" {
+                continue;
+            }
+            if let Some(converted) = plist_to_json(value) {
+                profile.insert(key.clone(), converted);
+            }
+        }
+    }
+
+    profile.insert("Name".into(), json!(PROFILE_NAME));
+    profile.insert("Guid".into(), json!(PROFILE_GUID));
+    // The theme picks the colours, not the system appearance.
+    profile.insert(SEPARATE_LIGHT_DARK.into(), json!(false));
+
+    // Colours last, so they overwrite whatever the copied profile had.
+    for (key, color) in color_entries(theme) {
+        let (r, g, b) = color.components();
+        profile.insert(
+            key,
+            json!({
+                "Red Component": r,
+                "Green Component": g,
+                "Blue Component": b,
+                "Alpha Component": 1.0,
+                "Color Space": "sRGB",
+            }),
+        );
+    }
+
+    json!({ "Profiles": [Json::Object(profile)] })
+}
+
+/// The user's default profile, to copy into the managed one.
+pub fn default_profile(root: &Dictionary) -> Option<Dictionary> {
+    let guid = root.get("Default Bookmark Guid")?.as_string()?;
+    let bookmarks = root.get("New Bookmarks")?.as_array()?;
+    bookmarks
+        .iter()
+        .filter_map(|bookmark| bookmark.as_dictionary())
+        .find(|profile| {
+            let this = profile.get("Guid").and_then(|g| g.as_string());
+            // Never copy from ourselves, or the theme would compound.
+            this == Some(guid) && this != Some(PROFILE_GUID)
+        })
+        .cloned()
+}
+
+/// The name of the profile iTerm2 opens new windows with.
+pub fn default_profile_name(root: &Dictionary) -> Option<String> {
+    let guid = root.get("Default Bookmark Guid")?.as_string()?;
+    let bookmarks = root.get("New Bookmarks")?.as_array()?;
+    bookmarks
+        .iter()
+        .filter_map(|bookmark| bookmark.as_dictionary())
+        .find(|profile| profile.get("Guid").and_then(|g| g.as_string()) == Some(guid))
+        .and_then(|profile| profile.get("Name"))
+        .and_then(|name| name.as_string())
+        .map(|name| name.to_string())
+}
+
+/// Whether the managed profile is the one new windows use.
+///
+/// Until it is, writing the profile changes nothing the user can see, so this
+/// decides whether the interface still has something to ask of them.
+pub fn managed_profile_is_default() -> bool {
+    read_default("Default Bookmark Guid").as_deref() == Some(PROFILE_GUID)
 }
 
 /// Whether iTerm2 is running right now.
@@ -295,6 +474,10 @@ pub fn apply_to_prefs(root: &mut Dictionary, theme: &Theme, all_profiles: bool) 
             }
         }
 
+        // Otherwise the plain colour keys below would be ignored whenever
+        // macOS is in the appearance the profile has separate colours for.
+        profile.insert(SEPARATE_LIGHT_DARK.to_string(), Value::Boolean(false));
+
         for (key, color) in &entries {
             profile.insert(key.clone(), Value::Dictionary(color_dict(*color)));
         }
@@ -330,27 +513,27 @@ impl Target for Iterm2 {
             .as_ref()
             .and_then(theme_from_prefs);
 
-        let uses_custom_folder = read_default("LoadPrefsFromCustomFolder")
-            .map(|value| value == "1")
-            .unwrap_or(false);
-
         let detail = if !installed {
             "iTerm2 is not installed".to_string()
-        } else if !path.exists() {
-            "no preferences file found".to_string()
-        } else if uses_custom_folder {
-            "preferences load from your own folder, so changes are versioned with it".to_string()
-        } else if is_running() {
-            "running; open sessions recolour immediately".to_string()
+        } else if managed_profile_is_default() {
+            "the TermDeck profile is your default, so themes stick on their own".to_string()
+        } else if dynamic_profile_path().exists() {
+            format!(
+                "the \"{PROFILE_NAME}\" profile exists but is not your default yet, so new \
+                 windows keep their old colours"
+            )
         } else {
-            "installed and not running".to_string()
+            "open sessions recolour immediately; a managed profile makes it persist".to_string()
         };
 
         Detection {
             id: ITERM2.to_string(),
             name: "iTerm2".to_string(),
             installed,
-            paths: vec![super::display_path(&path)],
+            paths: vec![
+                super::display_path(&dynamic_profile_path()),
+                super::display_path(&path),
+            ],
             detail,
             current_theme: current,
         }
@@ -368,9 +551,31 @@ impl Target for Iterm2 {
         let path = prefs_path();
         let mut changed = Vec::new();
         let mut notes = Vec::new();
+        let running = is_running();
 
-        // Persist for windows opened later.
-        if path.exists() {
+        // The managed profile is the part that actually persists. iTerm2 picks
+        // it up within a second and never writes over it.
+        let base = Value::from_file(&path)
+            .ok()
+            .and_then(|value| value.into_dictionary())
+            .as_ref()
+            .and_then(default_profile);
+
+        let profile_path = dynamic_profile_path();
+        let profile_json = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&dynamic_profile(theme, base.as_ref()))?
+        );
+        if crate::edit::read_or_empty(&profile_path)? != profile_json {
+            crate::edit::write_with_backup(&profile_path, &profile_json)?;
+        }
+        changed.push(profile_path);
+
+        // Writing the preferences plist only helps while iTerm2 is closed. If
+        // it is running it holds preferences in memory and saves them back on
+        // quit, so a write now would simply be discarded — and claiming it
+        // worked would be worse than not doing it.
+        if !running && path.exists() {
             let binary = is_binary_plist(&path);
             let value = Value::from_file(&path)
                 .with_context(|| format!("reading {}", path.display()))?;
@@ -390,16 +595,17 @@ impl Target for Iterm2 {
             .with_context(|| format!("writing {}", path.display()))?;
 
             changed.push(path.clone());
-            if touched == 0 {
-                notes.push("no profiles found in the preferences file".to_string());
+            if touched > 0 {
+                notes.push(format!(
+                    "and into {touched} saved profile{}",
+                    if touched == 1 { "" } else { "s" }
+                ));
             }
-        } else {
-            notes.push("no preferences file to update, so only open sessions changed".to_string());
         }
 
         // Recolour what is open now.
         let mut live_applied = false;
-        if options.live && is_running() {
+        if options.live && running {
             let script = live_script(theme);
             let out = Command::new("osascript")
                 .arg("-e")
@@ -415,44 +621,44 @@ impl Target for Iterm2 {
             }
         }
 
-        let running = is_running();
-        let mut message = if live_applied {
-            format!("Recoloured every open session to {}.", theme.name)
-        } else if running {
-            format!("Wrote {} to preferences.", theme.name)
-        } else {
-            format!("Wrote {} to preferences for the next launch.", theme.name)
-        };
+        let is_default = managed_profile_is_default();
 
+        let mut message = if live_applied {
+            format!("Recoloured every open session to {}", theme.name)
+        } else {
+            format!("Wrote {} into the TermDeck profile", theme.name)
+        };
         if !notes.is_empty() {
             message.push(' ');
-            message.push_str(&capitalise(&notes.join("; ")));
-            message.push('.');
+            message.push_str(&notes.join("; "));
+        }
+        message.push('.');
+
+        if is_default {
+            // The managed profile is the default, so new windows get the theme
+            // too and nothing is left for the user to do.
+            return Ok(Outcome::applied(ITERM2, "iTerm2", message, changed));
         }
 
-        // iTerm2 writes its in-memory preferences over this file when it quits,
-        // so persistence is only guaranteed once it has been restarted.
-        let follow_up = running.then(|| {
-            "iTerm2 saves its preferences when it quits, which can overwrite what TermDeck \
-             wrote. To make the change stick for new windows, quit and reopen iTerm2, or set \
-             Settings → General → Preferences → Save changes to \"Manually\"."
-                .to_string()
-        });
-
-        Ok(match follow_up {
-            Some(note) => Outcome::pending(ITERM2, "iTerm2", message, changed, note),
-            None => Outcome::applied(ITERM2, "iTerm2", message, changed),
-        })
+        // The profile is written and iTerm2 has already reloaded it, but new
+        // windows will keep using whichever profile is the default until that
+        // is switched over — once, by hand, because iTerm2 keeps the default in
+        // the preferences it holds in memory.
+        Ok(Outcome::pending(
+            ITERM2,
+            "iTerm2",
+            message,
+            changed,
+            format!(
+                "New windows still open with your current profile. To make this stick for good, \
+                 open iTerm2 Settings → Profiles, select \"{PROFILE_NAME}\", and use Other Actions \
+                 → Set as Default. That is a one-time step; after it, every theme change applies \
+                 to new windows on its own."
+            ),
+        ))
     }
 }
 
-fn capitalise(text: &str) -> String {
-    let mut chars = text.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -496,17 +702,110 @@ mod tests {
     #[test]
     fn a_theme_sets_all_sixteen_ansi_slots_plus_the_named_ones() {
         let entries = color_entries(&find("catppuccin-mocha").unwrap());
-        assert_eq!(entries.len(), NAMED_KEYS.len() + 16);
+        // Every colour three times: plain, (Light) and (Dark).
+        assert_eq!(entries.len(), (NAMED_KEYS.len() + 16) * 3);
+
         for index in 0..16 {
-            let key = format!("Ansi {index} Color");
-            assert!(
-                entries.iter().any(|(k, _)| k == &key),
-                "{key} should be written"
-            );
+            for suffix in ["", " (Light)", " (Dark)"] {
+                let key = format!("Ansi {index} Color{suffix}");
+                assert!(
+                    entries.iter().any(|(k, _)| k == &key),
+                    "{key} should be written"
+                );
+            }
         }
         for key in NAMED_KEYS {
-            assert!(entries.iter().any(|(k, _)| k == key), "{key} should be written");
+            for suffix in ["", " (Light)", " (Dark)"] {
+                let key = format!("{key}{suffix}");
+                assert!(
+                    entries.iter().any(|(k, _)| k == &key),
+                    "{key} should be written"
+                );
+            }
         }
+    }
+
+    #[test]
+    fn the_light_and_dark_variants_get_the_same_colour() {
+        // A theme is one appearance. If the variants differed, the terminal
+        // would change again whenever macOS switched between light and dark.
+        let entries = color_entries(&find("catppuccin-mocha").unwrap());
+        let lookup = |name: &str| {
+            entries
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, color)| *color)
+                .unwrap()
+        };
+
+        for base in ["Background Color", "Foreground Color", "Ansi 4 Color"] {
+            let plain = lookup(base);
+            assert_eq!(lookup(&format!("{base} (Light)")), plain, "{base}");
+            assert_eq!(lookup(&format!("{base} (Dark)")), plain, "{base}");
+        }
+    }
+
+    #[test]
+    fn the_managed_profile_stops_following_the_system_appearance() {
+        // This is the setting that made a correctly written theme appear not to
+        // apply at all: with it on, iTerm2 reads only the (Light)/(Dark) keys.
+        let json = dynamic_profile(&find("catppuccin-mocha").unwrap(), None);
+        assert_eq!(json["Profiles"][0][SEPARATE_LIGHT_DARK], false);
+    }
+
+    #[test]
+    fn writing_preferences_also_stops_following_the_appearance() {
+        let mut root = sample_prefs();
+        apply_to_prefs(&mut root, &find("catppuccin-mocha").unwrap(), true);
+
+        let bookmarks = root.get("New Bookmarks").unwrap().as_array().unwrap();
+        for bookmark in bookmarks {
+            let profile = bookmark.as_dictionary().unwrap();
+            assert_eq!(
+                profile.get(SEPARATE_LIGHT_DARK).unwrap().as_boolean(),
+                Some(false)
+            );
+            // And the variant keys carry the theme too.
+            let light = profile
+                .get("Background Color (Light)")
+                .unwrap()
+                .as_dictionary()
+                .unwrap();
+            let red = light.get("Red Component").unwrap().as_real().unwrap();
+            assert!((red - 30.0 / 255.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn a_profile_that_followed_the_appearance_is_corrected() {
+        // The real profile on this machine had the switch on, with latte in the
+        // (Light) keys. Applying a dark theme has to overwrite both.
+        let mut root = sample_prefs();
+        if let Some(bookmarks) = root
+            .get_mut("New Bookmarks")
+            .and_then(|value| value.as_array_mut())
+        {
+            for bookmark in bookmarks.iter_mut() {
+                let profile = bookmark.as_dictionary_mut().unwrap();
+                profile.insert(SEPARATE_LIGHT_DARK.into(), Value::Boolean(true));
+                profile.insert(
+                    "Background Color (Light)".into(),
+                    Value::Dictionary(color_dict(Rgb::parse("#eff1f5").unwrap())),
+                );
+            }
+        }
+
+        apply_to_prefs(&mut root, &find("catppuccin-mocha").unwrap(), true);
+
+        let base = default_profile(&root).unwrap();
+        assert_eq!(base.get(SEPARATE_LIGHT_DARK).unwrap().as_boolean(), Some(false));
+        let light = base
+            .get("Background Color (Light)")
+            .unwrap()
+            .as_dictionary()
+            .unwrap();
+        let red = light.get("Red Component").unwrap().as_real().unwrap();
+        assert!((red - 30.0 / 255.0).abs() < 1e-6, "latte survived into mocha");
     }
 
     #[test]
@@ -658,7 +957,7 @@ mod tests {
         for theme in crate::theme::built_in_themes() {
             let script = live_script(&theme);
             assert_eq!(script.matches("set ANSI ").count(), 16, "{}", theme.id);
-            assert_eq!(preset_dict(&theme).len(), NAMED_KEYS.len() + 16, "{}", theme.id);
+            assert_eq!(preset_dict(&theme).len(), (NAMED_KEYS.len() + 16) * 3, "{}", theme.id);
         }
     }
 
@@ -669,6 +968,200 @@ mod tests {
             .map(preset_name)
             .collect();
         assert_eq!(names.len(), crate::theme::built_in_themes().len());
+    }
+
+    #[test]
+    fn the_managed_profile_carries_every_colour() {
+        let theme = find("catppuccin-mocha").unwrap();
+        let json = dynamic_profile(&theme, None);
+        let profile = &json["Profiles"][0];
+
+        assert_eq!(profile["Name"], PROFILE_NAME);
+        assert_eq!(profile["Guid"], PROFILE_GUID);
+        for index in 0..16 {
+            assert!(
+                profile[format!("Ansi {index} Color")].is_object(),
+                "Ansi {index} Color missing"
+            );
+        }
+        assert!(profile["Background Color"].is_object());
+        // Mocha's background is #1e1e2e.
+        let red = profile["Background Color"]["Red Component"].as_f64().unwrap();
+        assert!((red - 30.0 / 255.0).abs() < 1e-6);
+        assert_eq!(profile["Background Color"]["Color Space"], "sRGB");
+    }
+
+    #[test]
+    fn the_managed_profile_keeps_the_users_other_settings() {
+        // The font and everything else has to come along, or switching to this
+        // profile would change far more than the colours.
+        let root = sample_prefs();
+        let base = default_profile(&root).expect("a default profile");
+        let json = dynamic_profile(&find("nord").unwrap(), Some(&base));
+        let profile = &json["Profiles"][0];
+
+        assert_eq!(profile["Normal Font"], "Menlo 12");
+        // But its identity is ours, not theirs.
+        assert_eq!(profile["Name"], PROFILE_NAME);
+        assert_eq!(profile["Guid"], PROFILE_GUID);
+    }
+
+    #[test]
+    fn the_theme_wins_over_the_copied_profile() {
+        // The copied profile carries its own colours, and ours have to be the
+        // ones that survive.
+        let mut root = sample_prefs();
+        apply_to_prefs(&mut root, &find("catppuccin-latte").unwrap(), true);
+        let base = default_profile(&root).expect("a default profile");
+
+        let json = dynamic_profile(&find("catppuccin-mocha").unwrap(), Some(&base));
+        let red = json["Profiles"][0]["Background Color"]["Red Component"]
+            .as_f64()
+            .unwrap();
+        // Mocha's #1e1e2e, not latte's #eff1f5.
+        assert!((red - 30.0 / 255.0).abs() < 1e-6, "got {red}");
+    }
+
+    #[test]
+    fn the_profile_never_inherits() {
+        // `Dynamic Profile Parent Name` makes the parent's colours win over the
+        // child's, so a profile carrying that key would never show the theme.
+        let root = sample_prefs();
+        let base = default_profile(&root);
+        for parent in [None, base.as_ref()] {
+            let json = dynamic_profile(&find("nord").unwrap(), parent);
+            assert!(
+                json["Profiles"][0]
+                    .get("Dynamic Profile Parent Name")
+                    .is_none(),
+                "inheriting would silently discard the theme"
+            );
+        }
+    }
+
+    #[test]
+    fn the_managed_profile_is_never_copied_from_itself() {
+        // Otherwise the profile would accumulate its own previous state.
+        let mut root = sample_prefs();
+        root.insert(
+            "Default Bookmark Guid".into(),
+            Value::String(PROFILE_GUID.into()),
+        );
+        assert!(default_profile(&root).is_none());
+    }
+
+    #[test]
+    fn unrepresentable_values_are_dropped_rather_than_breaking_the_file() {
+        // Profiles can hold binary blobs, which have no JSON form. Dropping one
+        // is fine; writing invalid JSON would make iTerm2 ignore the profile.
+        let mut base = Dictionary::new();
+        base.insert("Normal Font".into(), Value::String("Menlo 12".into()));
+        base.insert("Some Blob".into(), Value::Data(vec![1, 2, 3]));
+        base.insert("Transparency".into(), Value::Real(0.15));
+        base.insert("Blur".into(), Value::Boolean(true));
+        base.insert("Columns".into(), Value::Integer(120.into()));
+
+        let json = dynamic_profile(&find("nord").unwrap(), Some(&base));
+        let profile = &json["Profiles"][0];
+        assert_eq!(profile["Normal Font"], "Menlo 12");
+        assert_eq!(profile["Transparency"], 0.15);
+        assert_eq!(profile["Blur"], true);
+        assert_eq!(profile["Columns"], 120);
+        assert!(profile.get("Some Blob").is_none());
+
+        // And the result is still valid JSON.
+        let text = serde_json::to_string(&json).unwrap();
+        serde_json::from_str::<serde_json::Value>(&text).expect("valid JSON");
+    }
+
+    #[test]
+    fn the_guid_is_stable_across_themes() {
+        // A changing guid would leave a new profile behind on every apply.
+        let a = dynamic_profile(&find("nord").unwrap(), None);
+        let b = dynamic_profile(&find("dracula").unwrap(), None);
+        assert_eq!(a["Profiles"][0]["Guid"], b["Profiles"][0]["Guid"]);
+    }
+
+    #[test]
+    fn the_profile_is_the_shape_iterm_reads() {
+        // iTerm2 expects a top-level "Profiles" array, not a bare object.
+        let json = dynamic_profile(&find("nord").unwrap(), None);
+        assert!(json["Profiles"].is_array());
+        assert_eq!(json["Profiles"].as_array().unwrap().len(), 1);
+        // And it has to survive a round trip through a file. Colours are
+        // compared with a tolerance rather than exactly: writing a float and
+        // reading it back can shift the last bit, which is around 1e-17 of a
+        // channel that only has 256 distinguishable values.
+        let text = serde_json::to_string_pretty(&json).unwrap();
+        let back: serde_json::Value = serde_json::from_str(&text).unwrap();
+
+        let original = json["Profiles"][0].as_object().unwrap();
+        let reloaded = back["Profiles"][0].as_object().unwrap();
+        assert_eq!(original.len(), reloaded.len());
+
+        for (key, value) in original {
+            let other = reloaded.get(key).unwrap_or_else(|| panic!("lost {key}"));
+            match value.as_object() {
+                Some(color) => {
+                    for (channel, number) in color {
+                        match number.as_f64() {
+                            Some(expected) => {
+                                let got = other[channel].as_f64().unwrap();
+                                assert!(
+                                    (expected - got).abs() < 1e-9,
+                                    "{key}/{channel}: {expected} became {got}"
+                                );
+                                // Still the same 8-bit colour, which is all
+                                // iTerm2 can actually display.
+                                assert_eq!(
+                                    (expected * 255.0).round(),
+                                    (got * 255.0).round()
+                                );
+                            }
+                            None => assert_eq!(number, &other[channel]),
+                        }
+                    }
+                }
+                None => assert_eq!(value, other),
+            }
+        }
+    }
+
+    #[test]
+    fn the_default_profile_name_is_read_from_preferences() {
+        let root = sample_prefs();
+        assert_eq!(default_profile_name(&root).as_deref(), Some("Personal"));
+    }
+
+    #[test]
+    fn preferences_without_a_default_give_no_parent() {
+        let mut root = sample_prefs();
+        root.remove("Default Bookmark Guid");
+        assert_eq!(default_profile_name(&root), None);
+
+        // A guid pointing at a profile that is gone is also handled.
+        let mut root = sample_prefs();
+        root.insert(
+            "Default Bookmark Guid".into(),
+            Value::String("GONE".into()),
+        );
+        assert_eq!(default_profile_name(&root), None);
+    }
+
+    #[test]
+    fn every_theme_produces_a_valid_managed_profile() {
+        for theme in crate::theme::built_in_themes() {
+            let json = dynamic_profile(&theme, None);
+            let profile = json["Profiles"][0].as_object().unwrap();
+            // Name, Guid, the appearance switch, plus every colour key.
+            assert_eq!(profile.len(), 3 + (NAMED_KEYS.len() + 16) * 3, "{}", theme.id);
+        }
+    }
+
+    #[test]
+    fn the_profile_lands_where_iterm_watches() {
+        let path = dynamic_profile_path();
+        assert!(path.ends_with("DynamicProfiles/termdeck.json"), "{path:?}");
     }
 
     #[test]

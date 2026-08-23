@@ -101,6 +101,26 @@ fn main() -> anyhow::Result<()> {
 
     println!("\n--- iTerm2 ---");
     println!("prefs: {}", iterm2::prefs_path().display());
+    println!("managed profile: {}", iterm2::dynamic_profile_path().display());
+    println!(
+        "managed profile is the default: {}",
+        iterm2::managed_profile_is_default()
+    );
+    if std::env::args().any(|arg| arg == "--write-profile") {
+        let root = plist::Value::from_file(iterm2::prefs_path())
+            .ok()
+            .and_then(|value| value.into_dictionary());
+        println!(
+            "copying settings from: {:?}",
+            root.as_ref().and_then(iterm2::default_profile_name)
+        );
+        let base = root.as_ref().and_then(iterm2::default_profile);
+        let json = serde_json::to_string_pretty(&iterm2::dynamic_profile(&theme, base.as_ref()))?;
+        let path = iterm2::dynamic_profile_path();
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        std::fs::write(&path, format!("{json}\n"))?;
+        println!("wrote {}", path.display());
+    }
     println!("preset that would be registered: {}", iterm2::preset_name(&theme));
     println!("colour keys written per profile: {}", iterm2::color_entries(&theme).len());
 

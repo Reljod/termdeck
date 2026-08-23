@@ -12,7 +12,7 @@ effect immediately and which need a nudge.
 
 | Target | File | How it applies |
 | --- | --- | --- |
-| **iTerm2** | the preferences plist it actually loads, including a custom prefs folder | AppleScript recolours every open session immediately; the palette is written to the plist for new windows |
+| **iTerm2** | a dynamic profile, plus the preferences plist when iTerm2 is closed | AppleScript recolours every open session immediately; the dynamic profile is what makes it persist |
 | **tmux** | `~/.tmux.conf` | the catppuccin plugin's flavour, or an explicit status line for other themes, then `tmux source-file` |
 | **zsh** | `~/.config/termdeck/zsh-theme.zsh`, plus one line in `~/.zshrc` | powerlevel10k prompt colours and the fzf palette |
 | **Neovim** | `~/.config/nvim/lua/termdeck.lua`, plus one line in `init.lua` | `background` and `colorscheme`; open editors are recoloured over their own socket |
@@ -97,11 +97,11 @@ comment style only affects writing.
 Some of this is visible instantly and some genuinely is not, so the app
 distinguishes them rather than saying "done" to everything:
 
-- **iTerm2** recolours open sessions immediately. But iTerm2 writes its
-  in-memory preferences over the file when it quits, which can undo what was
-  written for *new* windows. To make that stick, either quit iTerm2 before
-  applying, or set Settings → General → Preferences → Save changes to
-  "Manually". The app says so when iTerm2 is running.
+- **iTerm2** recolours open sessions immediately, and writes a managed profile
+  that new windows read. That profile has to be your default profile once:
+  Settings → Profiles, select **TermDeck**, Other Actions → Set as Default.
+  After that one step, every theme change reaches new windows on its own. Until
+  then the app keeps saying so.
 - **tmux** reloads open sessions right away.
 - **Neovim** recolours editors that are already open, over the socket every
   instance has listened on since 0.10. If none are running it applies at next
@@ -119,9 +119,34 @@ src/             the React interface
 ```
 
 The logic lives in `crates/core` precisely so it can be tested without a window.
-`cargo test --workspace` runs 134 tests, including one that applies themes to a
+`cargo test --workspace` runs 163 tests, including one that applies themes to a
 throwaway home directory and one that round-trips a real iTerm2 preferences
 file.
+
+## Three things about iTerm2 that cost real time
+
+These are all cases where the obvious approach looks right, appears to work, and
+does not.
+
+**The preferences plist cannot be written while iTerm2 is running.** iTerm2
+holds preferences in memory the whole time it runs and writes them back out on
+quit, so an edit made underneath it is discarded when it exits. The theme seems
+to persist and then quietly does not. TermDeck writes the plist only when iTerm2
+is closed, and relies on a dynamic profile otherwise.
+
+**A dynamic profile must copy, not inherit.** `Dynamic Profile Parent Name`
+looks like the clean way to keep the user's font and keybindings while
+overriding colours. For colours it does the opposite of what you would expect:
+the parent's win over the child's, so an inheriting profile shows the parent's
+palette and the theme never appears. TermDeck copies the default profile's
+settings instead and overwrites the colours.
+
+**"Use Separate Colors for Light and Dark Mode" silently discards your
+palette.** With that switch on, iTerm2 ignores `Background Color` entirely and
+reads `Background Color (Light)` or `Background Color (Dark)` depending on the
+system appearance. Writing the plain keys does nothing at all. TermDeck writes
+every colour to all three keys and turns the switch off, so a theme means one
+appearance regardless of what macOS is set to.
 
 ## Notes
 
@@ -130,3 +155,9 @@ prompt colours are mapped to the nearest palette entry on the way out. fzf gets
 exact hex. Indices 0-15 are excluded from that mapping on purpose: those are the
 ANSI slots TermDeck is also rewriting, so matching against them would make the
 prompt colour depend on the palette it sits on.
+
+An app launched from the Finder does not inherit the `PATH` a terminal has — on
+this machine a GUI process starts without Homebrew on it. Everything that shells
+out goes through `which.rs`, which searches the usual install directories and
+falls back to asking a login shell, so `tmux` and `nvim` are found rather than
+being reported as not installed.
