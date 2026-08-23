@@ -40,6 +40,12 @@ export FZF_DEFAULT_OPTS=\"--color=fg:#4c4f69\"
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 ";
 
+/// A LazyVim `init.lua`, which really is this short.
+const INIT_LUA: &str = "\
+-- bootstrap lazy.nvim, LazyVim and your plugins
+require(\"config.lazy\")
+";
+
 const CLAUDE_SETTINGS: &str = r#"{
   "includeCoAuthoredBy": false,
   "model": "opus",
@@ -65,6 +71,11 @@ fn applying_and_toggling_leaves_a_real_home_intact() {
     fs::write(root.join(".claude/settings.json"), CLAUDE_SETTINGS).unwrap();
     fs::create_dir_all(root.join(".claude-work")).unwrap();
     fs::write(root.join(".claude-work/settings.json"), r#"{"theme": "auto"}"#).unwrap();
+    fs::create_dir_all(root.join(".config/nvim/lua")).unwrap();
+    fs::write(root.join(".config/nvim/init.lua"), INIT_LUA).unwrap();
+    // Pretend catppuccin is the only colourscheme plugin installed, which is
+    // exactly the situation on this machine.
+    fs::create_dir_all(root.join(".local/share/nvim/lazy/catppuccin")).unwrap();
 
     // SAFETY: single-threaded within this test binary, and every path the
     // adapters touch is derived from HOME.
@@ -72,7 +83,12 @@ fn applying_and_toggling_leaves_a_real_home_intact() {
         std::env::set_var("HOME", &root);
     }
 
-    let enabled: Vec<String> = vec!["tmux".into(), "zsh".into(), "claude".into()];
+    let enabled: Vec<String> = vec![
+        "tmux".into(),
+        "zsh".into(),
+        "nvim".into(),
+        "claude".into(),
+    ];
     let options = ApplyOptions {
         // Do not try to reach real running sessions from a test.
         live: false,
@@ -84,6 +100,8 @@ fn applying_and_toggling_leaves_a_real_home_intact() {
     let claude = root.join(".claude/settings.json");
     let claude_work = root.join(".claude-work/settings.json");
     let generated = root.join(".config/termdeck/zsh-theme.zsh");
+    let init_lua = root.join(".config/nvim/init.lua");
+    let nvim_theme = root.join(".config/nvim/lua/termdeck.lua");
 
     // --- Apply a dark theme ------------------------------------------------
     let outcomes = apply("catppuccin-mocha", &options, &enabled).expect("apply mocha");
@@ -115,6 +133,24 @@ fn applying_and_toggling_leaves_a_real_home_intact() {
     assert!(read(&generated).contains("TERMDECK_THEME='catppuccin-mocha'"));
     assert!(read(&zshrc).contains("source ~/.config/termdeck/zsh-theme.zsh"));
     assert!(read(&zshrc).contains("ZSH_THEME=\"powerlevel10k/powerlevel10k\""));
+
+    // Neovim: the generated file carries the theme, and init.lua runs it after
+    // lazy has loaded rather than before.
+    assert!(nvim_theme.exists(), "nvim theme file written");
+    let nvim_after = read(&nvim_theme);
+    assert!(nvim_after.contains("vim.g.termdeck_theme = 'catppuccin-mocha'"));
+    assert!(nvim_after.contains("vim.o.background = 'dark'"));
+    assert!(nvim_after.contains("catppuccin-mocha"));
+
+    let init_after = read(&init_lua);
+    assert!(init_after.contains("require(\"config.lazy\")"), "user init survived");
+    assert!(
+        init_after.find("termdeck.lua").unwrap()
+            > init_after.find("require(\"config.lazy\")").unwrap(),
+        "our line has to run after lazy loads or LazyVim overwrites it"
+    );
+    assert!(init_after.contains("-- >>> termdeck:nvim"), "Lua needs -- comments");
+    assert!(!init_after.contains("# >>>"), "a # would break Lua parsing");
 
     let claude_json: serde_json::Value = serde_json::from_str(&read(&claude)).unwrap();
     assert_eq!(claude_json["theme"], "dark");
@@ -150,9 +186,11 @@ fn applying_and_toggling_leaves_a_real_home_intact() {
     // --- Applying the same theme twice changes nothing ---------------------
     let tmux_once = read(&tmux_conf);
     let zshrc_once = read(&zshrc);
+    let init_once = read(&init_lua);
     apply("catppuccin-mocha", &options, &enabled).expect("apply mocha again");
     assert_eq!(read(&tmux_conf), tmux_once, "tmux.conf drifted on re-apply");
     assert_eq!(read(&zshrc), zshrc_once, ".zshrc drifted on re-apply");
+    assert_eq!(read(&init_lua), init_once, "init.lua drifted on re-apply");
 
     // --- Switch to a theme that needs an explicit tmux status line ---------
     apply("dracula", &options, &enabled).expect("apply dracula");
@@ -162,6 +200,20 @@ fn applying_and_toggling_leaves_a_real_home_intact() {
     // Only one of each block, no matter how many times we switch.
     assert_eq!(dracula_tmux.matches("termdeck:tmux-flavour >>>").count(), 1);
     assert_eq!(dracula_tmux.matches("termdeck:tmux-style >>>").count(), 1);
+
+    // Dracula's Neovim plugin is not installed in this sandbox, so Neovim must
+    // be pointed at a colourscheme that exists rather than one that does not.
+    let dracula_nvim = read(&nvim_theme);
+    assert!(
+        dracula_nvim.contains("pcall(vim.cmd.colorscheme, 'catppuccin-mocha')"),
+        "should substitute a dark catppuccin, got:\n{dracula_nvim}"
+    );
+    assert!(
+        !dracula_nvim.contains("colorscheme, 'dracula'"),
+        "must not ask for an uninstalled colourscheme"
+    );
+    assert!(dracula_nvim.contains("vim.o.background = 'dark'"));
+    assert_eq!(read(&init_lua), init_once, "init.lua is stable across themes");
 
     // --- Back to a light theme --------------------------------------------
     apply("catppuccin-latte", &options, &enabled).expect("apply latte");
@@ -174,6 +226,12 @@ fn applying_and_toggling_leaves_a_real_home_intact() {
 
     let claude_json: serde_json::Value = serde_json::from_str(&read(&claude)).unwrap();
     assert_eq!(claude_json["theme"], "light", "Claude followed back to light");
+
+    // Neovim followed back to a light colourscheme too, which is the whole
+    // point of doing all five together.
+    let latte_nvim = read(&nvim_theme);
+    assert!(latte_nvim.contains("vim.o.background = 'light'"));
+    assert!(latte_nvim.contains("catppuccin-latte"));
 
     // --- A full round trip returns the files to their first-applied state --
     apply("catppuccin-mocha", &options, &enabled).expect("round trip");
@@ -195,4 +253,39 @@ fn applying_and_toggling_leaves_a_real_home_intact() {
     for line in ZSHRC.lines().filter(|l| !l.trim().is_empty()) {
         assert!(read(&zshrc).contains(line), "lost `{line}` from .zshrc");
     }
+    for line in INIT_LUA.lines().filter(|l| !l.trim().is_empty()) {
+        assert!(read(&init_lua).contains(line), "lost `{line}` from init.lua");
+    }
+
+    // Removing every block returns each file to exactly what it was, which is
+    // what makes this reversible rather than merely careful.
+    use termdeck_core::edit::remove_block;
+    let bare_init = remove_block(&read(&init_lua), "nvim");
+    assert_eq!(bare_init, INIT_LUA, "init.lua is not cleanly reversible");
+
+    let bare_zshrc = remove_block(&read(&zshrc), "zsh");
+    assert_eq!(bare_zshrc, ZSHRC, ".zshrc is not cleanly reversible");
+
+    // tmux is reversible down to one blank line rather than byte for byte. Its
+    // flavour block is inserted before the tpm line and padded with a blank on
+    // each side; removing it collapses those two blanks to one, and there is no
+    // way to tell that leftover blank from one the user wrote. Content is what
+    // matters, so that is what this asserts.
+    let bare_tmux = remove_block(&remove_block(&read(&tmux_conf), "tmux-flavour"), "tmux-style");
+    assert_eq!(
+        content_lines(&bare_tmux),
+        content_lines(TMUX_CONF),
+        "tmux.conf lost or gained content, not just whitespace"
+    );
+    assert!(
+        !bare_tmux.contains("termdeck"),
+        "removal left something of ours behind"
+    );
+}
+
+/// The lines that carry meaning, in order, ignoring blank ones.
+fn content_lines(text: &str) -> Vec<&str> {
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect()
 }

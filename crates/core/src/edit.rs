@@ -26,21 +26,37 @@ pub enum Placement {
     BeforeLineContaining(String),
 }
 
-fn start_marker(id: &str) -> String {
-    format!("# >>> termdeck:{id} >>>")
+/// The comment prefix for shell-style config files: tmux, zsh.
+pub const HASH: &str = "#";
+/// The comment prefix for Lua, which Neovim's config is written in.
+pub const LUA: &str = "--";
+
+/// The marker text, without any comment prefix.
+///
+/// Finding a block matches on this rather than on the whole commented line, so
+/// a block stays findable even if its file uses a different comment syntax than
+/// the one that wrote it.
+fn start_body(id: &str) -> String {
+    format!(">>> termdeck:{id} >>>")
 }
 
-fn end_marker(id: &str) -> String {
-    format!("# <<< termdeck:{id} <<<")
+fn end_body(id: &str) -> String {
+    format!("<<< termdeck:{id} <<<")
 }
 
 /// Inserts or replaces the block named `id`, returning the new file text.
 ///
 /// Calling this twice with the same arguments produces the same text, which is
 /// what keeps a repeated apply from stacking duplicate blocks in a dotfile.
-pub fn upsert_block(text: &str, id: &str, content: &str, placement: &Placement) -> String {
+pub fn upsert_block(
+    text: &str,
+    id: &str,
+    content: &str,
+    placement: &Placement,
+    comment: &str,
+) -> String {
     let stripped = remove_block(text, id);
-    let block = render_block(id, content);
+    let block = render_block(id, content, comment);
 
     if stripped.trim().is_empty() {
         return format!("{block}\n");
@@ -85,22 +101,26 @@ pub fn upsert_block(text: &str, id: &str, content: &str, placement: &Placement) 
                     out.push('\n');
                     out
                 }
-                None => upsert_block(&stripped, id, content, &Placement::End),
+                None => upsert_block(&stripped, id, content, &Placement::End, comment),
             }
         }
     }
 }
 
-fn render_block(id: &str, content: &str) -> String {
+fn render_block(id: &str, content: &str, comment: &str) -> String {
     let mut block = String::new();
-    block.push_str(&start_marker(id));
+    block.push_str(comment);
+    block.push(' ');
+    block.push_str(&start_body(id));
     block.push_str("  managed by TermDeck — edits here are overwritten\n");
     let body = content.trim_end();
     if !body.is_empty() {
         block.push_str(body);
         block.push('\n');
     }
-    block.push_str(&end_marker(id));
+    block.push_str(comment);
+    block.push(' ');
+    block.push_str(&end_body(id));
     block
 }
 
@@ -110,16 +130,16 @@ fn render_block(id: &str, content: &str) -> String {
 /// truncated. That case means someone hand-edited the file, and deleting the
 /// rest of it would be the worst possible reading of the situation.
 pub fn remove_block(text: &str, id: &str) -> String {
-    let start = start_marker(id);
-    let end = end_marker(id);
+    let start = start_body(id);
+    let end = end_body(id);
 
     let lines: Vec<&str> = text.lines().collect();
-    let Some(start_index) = lines.iter().position(|line| line.starts_with(&start)) else {
+    let Some(start_index) = lines.iter().position(|line| line.contains(&start)) else {
         return text.to_string();
     };
     let Some(end_offset) = lines[start_index..]
         .iter()
-        .position(|line| line.starts_with(&end))
+        .position(|line| line.contains(&end))
     else {
         return text.to_string();
     };
@@ -145,14 +165,14 @@ pub fn remove_block(text: &str, id: &str) -> String {
 
 /// Returns the body of the block named `id`, if the file has one.
 pub fn read_block(text: &str, id: &str) -> Option<String> {
-    let start = start_marker(id);
-    let end = end_marker(id);
+    let start = start_body(id);
+    let end = end_body(id);
 
     let lines: Vec<&str> = text.lines().collect();
-    let start_index = lines.iter().position(|line| line.starts_with(&start))?;
+    let start_index = lines.iter().position(|line| line.contains(&start))?;
     let end_offset = lines[start_index..]
         .iter()
-        .position(|line| line.starts_with(&end))?;
+        .position(|line| line.contains(&end))?;
     let end_index = start_index + end_offset;
 
     Some(lines[start_index + 1..end_index].join("\n"))
@@ -275,7 +295,7 @@ mod tests {
 
     #[test]
     fn inserts_a_block_into_an_empty_file() {
-        let out = upsert_block("", ID, "set -g one", &Placement::End);
+        let out = upsert_block("", ID, "set -g one", &Placement::End, HASH);
         assert!(out.contains("# >>> termdeck:test >>>"));
         assert!(out.contains("set -g one"));
         assert!(out.contains("# <<< termdeck:test <<<"));
@@ -284,15 +304,15 @@ mod tests {
     #[test]
     fn appends_without_disturbing_what_was_there() {
         let existing = "set -g mouse on\nset -g prefix C-a\n";
-        let out = upsert_block(existing, ID, "set -g two", &Placement::End);
+        let out = upsert_block(existing, ID, "set -g two", &Placement::End, HASH);
         assert!(out.starts_with("set -g mouse on\nset -g prefix C-a"));
         assert!(out.contains("set -g two"));
     }
 
     #[test]
     fn applying_twice_does_not_stack_blocks() {
-        let first = upsert_block("set -g mouse on\n", ID, "one", &Placement::End);
-        let second = upsert_block(&first, ID, "two", &Placement::End);
+        let first = upsert_block("set -g mouse on\n", ID, "one", &Placement::End, HASH);
+        let second = upsert_block(&first, ID, "two", &Placement::End, HASH);
 
         assert_eq!(second.matches("# >>> termdeck:test >>>").count(), 1);
         assert!(!second.contains("one"));
@@ -302,15 +322,15 @@ mod tests {
     #[test]
     fn re_applying_the_same_content_is_stable() {
         // Toggling back and forth must not make the file drift.
-        let once = upsert_block("set -g mouse on\n", ID, "one", &Placement::End);
-        let twice = upsert_block(&once, ID, "one", &Placement::End);
+        let once = upsert_block("set -g mouse on\n", ID, "one", &Placement::End, HASH);
+        let twice = upsert_block(&once, ID, "one", &Placement::End, HASH);
         assert_eq!(once, twice);
     }
 
     #[test]
     fn blocks_with_different_ids_coexist() {
-        let first = upsert_block("base\n", "alpha", "a", &Placement::End);
-        let both = upsert_block(&first, "beta", "b", &Placement::End);
+        let first = upsert_block("base\n", "alpha", "a", &Placement::End, HASH);
+        let both = upsert_block(&first, "beta", "b", &Placement::End, HASH);
         assert!(both.contains("# >>> termdeck:alpha >>>"));
         assert!(both.contains("# >>> termdeck:beta >>>"));
         assert!(both.contains("base"));
@@ -319,7 +339,7 @@ mod tests {
     #[test]
     fn removing_a_block_restores_the_original_text() {
         let original = "set -g mouse on\nset -g prefix C-a\n";
-        let with = upsert_block(original, ID, "managed", &Placement::End);
+        let with = upsert_block(original, ID, "managed", &Placement::End, HASH);
         let without = remove_block(&with, ID);
         assert_eq!(without, original);
     }
@@ -346,6 +366,7 @@ mod tests {
             ID,
             "set -g @catppuccin_flavour 'mocha'",
             &Placement::BeforeLineContaining("run '~/.tmux/plugins/tpm/tpm'".into()),
+            HASH,
         );
 
         let block_at = out.find("@catppuccin_flavour").unwrap();
@@ -362,6 +383,7 @@ mod tests {
             ID,
             "content",
             &Placement::BeforeLineContaining("no such line".into()),
+            HASH,
         );
         assert!(out.contains("content"));
         assert!(out.starts_with("set -g mouse on"));
@@ -371,15 +393,15 @@ mod tests {
     fn anchored_blocks_are_also_stable_across_repeats() {
         let tmux = "set -g mouse on\nrun 'tpm'\n";
         let anchor = Placement::BeforeLineContaining("run 'tpm'".into());
-        let once = upsert_block(tmux, ID, "content", &anchor);
-        let twice = upsert_block(&once, ID, "content", &anchor);
+        let once = upsert_block(tmux, ID, "content", &anchor, HASH);
+        let twice = upsert_block(&once, ID, "content", &anchor, HASH);
         assert_eq!(once, twice);
         assert_eq!(twice.matches("# >>> termdeck:test >>>").count(), 1);
     }
 
     #[test]
     fn reads_back_what_it_wrote() {
-        let out = upsert_block("base\n", ID, "line one\nline two", &Placement::End);
+        let out = upsert_block("base\n", ID, "line one\nline two", &Placement::End, HASH);
         assert_eq!(
             read_block(&out, ID).as_deref(),
             Some("line one\nline two")
@@ -389,6 +411,46 @@ mod tests {
     #[test]
     fn reading_an_absent_block_gives_nothing() {
         assert_eq!(read_block("set -g mouse on\n", ID), None);
+    }
+
+    #[test]
+    fn lua_blocks_are_commented_the_lua_way() {
+        // A `#` in a Lua file is a syntax error, so Neovim's config would fail
+        // to load rather than merely look wrong.
+        let out = upsert_block("vim.o.number = true\n", ID, "vim.o.background = 'dark'", &Placement::End, LUA);
+        assert!(out.contains("-- >>> termdeck:test >>>"));
+        assert!(out.contains("-- <<< termdeck:test <<<"));
+        assert!(!out.contains("# >>>"));
+        assert!(out.contains("vim.o.number = true"));
+    }
+
+    #[test]
+    fn a_lua_block_round_trips_like_any_other() {
+        let once = upsert_block("vim.o.number = true\n", ID, "one", &Placement::End, LUA);
+        let twice = upsert_block(&once, ID, "one", &Placement::End, LUA);
+        assert_eq!(once, twice);
+        assert_eq!(read_block(&once, ID).as_deref(), Some("one"));
+        assert_eq!(remove_block(&once, ID), "vim.o.number = true\n");
+    }
+
+    #[test]
+    fn a_block_is_found_whatever_comment_wrote_it() {
+        // The marker text carries the identity; the comment prefix is only
+        // about making the surrounding file valid.
+        let hashed = upsert_block("base\n", ID, "body", &Placement::End, HASH);
+        let lua = upsert_block("base\n", ID, "body", &Placement::End, LUA);
+        assert_eq!(read_block(&hashed, ID).as_deref(), Some("body"));
+        assert_eq!(read_block(&lua, ID).as_deref(), Some("body"));
+        assert_eq!(remove_block(&lua, ID), "base\n");
+    }
+
+    #[test]
+    fn one_block_id_is_not_mistaken_for_a_longer_one() {
+        // `tmux` must not match `tmux-flavour`, or applying would eat the wrong
+        // block. Both are real ids in this codebase.
+        let text = upsert_block("base\n", "tmux-flavour", "body", &Placement::End, HASH);
+        assert_eq!(read_block(&text, "tmux"), None);
+        assert_eq!(remove_block(&text, "tmux"), text);
     }
 
     #[test]

@@ -1,7 +1,8 @@
-//! The four things TermDeck themes, and the shape they all share.
+//! The five things TermDeck themes, and the shape they all share.
 
 pub mod claude;
 pub mod iterm2;
+pub mod nvim;
 pub mod tmux;
 pub mod zsh;
 
@@ -15,10 +16,11 @@ use crate::theme::Theme;
 pub const ITERM2: &str = "iterm2";
 pub const TMUX: &str = "tmux";
 pub const ZSH: &str = "zsh";
+pub const NVIM: &str = "nvim";
 pub const CLAUDE: &str = "claude";
 
 /// Every target in the order the UI shows them.
-pub const ALL: [&str; 4] = [ITERM2, TMUX, ZSH, CLAUDE];
+pub const ALL: [&str; 5] = [ITERM2, TMUX, ZSH, NVIM, CLAUDE];
 
 /// What we found on this machine for one target.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,6 +180,7 @@ pub fn all_targets() -> Vec<Box<dyn Target>> {
         Box::new(iterm2::Iterm2),
         Box::new(tmux::Tmux),
         Box::new(zsh::Zsh),
+        Box::new(nvim::Neovim),
         Box::new(claude::ClaudeCode),
     ]
 }

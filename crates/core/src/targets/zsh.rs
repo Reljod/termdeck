@@ -117,7 +117,7 @@ typeset -g POWERLEVEL9K_BACKGROUND=
 
 /// Adds the source line to `.zshrc` if it is not already there.
 pub fn rewrite_zshrc(existing: &str) -> String {
-    edit::upsert_block(existing, BLOCK, &source_line(), &Placement::End)
+    edit::upsert_block(existing, BLOCK, &source_line(), &Placement::End, edit::HASH)
 }
 
 /// Reads the theme id back out of a generated theme file.

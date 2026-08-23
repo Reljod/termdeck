@@ -103,6 +103,22 @@ pub enum TmuxStyle {
     Palette,
 }
 
+/// How this theme maps onto Neovim.
+///
+/// Neovim colourschemes come from plugins, so a theme has to say both which
+/// colourscheme to select and which plugin provides it — the second half is
+/// what lets the adapter notice the plugin is missing and substitute something
+/// that exists instead of erroring on startup.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NvimStyle {
+    /// The name passed to `:colorscheme`.
+    pub colorscheme: String,
+    /// The plugin repository that provides it.
+    pub plugin: String,
+    /// The directory name the plugin manager installs it under.
+    pub plugin_name: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Theme {
     /// Stable identifier, used in config files and as the React key.
@@ -113,6 +129,7 @@ pub struct Theme {
     pub family: String,
     pub mode: Mode,
     pub tmux: TmuxStyle,
+    pub nvim: NvimStyle,
     pub palette: Palette,
 }
 

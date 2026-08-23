@@ -5,7 +5,7 @@
 //! near a real dotfile.
 
 use termdeck_core::edit;
-use termdeck_core::targets::{claude, iterm2, tmux, zsh};
+use termdeck_core::targets::{claude, iterm2, nvim, tmux, zsh};
 use termdeck_core::theme;
 
 fn main() -> anyhow::Result<()> {
@@ -74,7 +74,24 @@ fn main() -> anyhow::Result<()> {
         println!("[zsh]\n{body}");
     }
 
-    println!("\n--- Claude Code ---");
+    println!("\n--- Neovim ---");
+    let plugins = nvim::installed_plugins();
+    let (colorscheme, exact) = nvim::resolve(&theme, &plugins);
+    println!("colourscheme: {colorscheme}{}", if exact { "" } else { "  (substituted — the theme's own plugin is not installed)" });
+    println!("open editors that would recolour now: {}", nvim::running_sockets().len());
+    let init_before = edit::read_or_empty(&nvim::init_path())?;
+    let init_after = nvim::rewrite_init(&init_before);
+    println!(
+        "init.lua lines before: {}, after: {}",
+        init_before.lines().count(),
+        init_after.lines().count()
+    );
+    if let Some(body) = edit::read_block(&init_after, "nvim") {
+        println!("[nvim]\n{body}");
+    }
+    println!("\n{}", nvim::theme_file(&theme, &colorscheme));
+
+    println!("--- Claude Code ---");
     for file in claude::settings_files() {
         let text = edit::read_or_empty(&file)?;
         let before = claude::read_theme(&text);

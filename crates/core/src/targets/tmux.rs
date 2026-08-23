@@ -103,12 +103,14 @@ pub fn rewrite(existing: &str, theme: &Theme) -> String {
         FLAVOUR_BLOCK,
         &flavour_block(theme),
         &Placement::BeforeLineContaining(TPM_ANCHOR.to_string()),
+        edit::HASH,
     );
     edit::upsert_block(
         &with_flavour,
         STYLE_BLOCK,
         &style_block(theme),
         &Placement::End,
+        edit::HASH,
     )
 }
 

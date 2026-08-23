@@ -4,7 +4,15 @@
     "name": "Catppuccin Latte",
     "family": "Catppuccin",
     "mode": "light",
-    "tmux": { "kind": "catppuccin_flavour", "value": "latte" },
+    "tmux": {
+      "kind": "catppuccin_flavour",
+      "value": "latte"
+    },
+    "nvim": {
+      "colorscheme": "catppuccin-latte",
+      "plugin": "catppuccin/nvim",
+      "plugin_name": "catppuccin"
+    },
     "palette": {
       "background": "#eff1f5",
       "foreground": "#4c4f69",
@@ -40,7 +48,15 @@
     "name": "Catppuccin Frappe",
     "family": "Catppuccin",
     "mode": "dark",
-    "tmux": { "kind": "catppuccin_flavour", "value": "frappe" },
+    "tmux": {
+      "kind": "catppuccin_flavour",
+      "value": "frappe"
+    },
+    "nvim": {
+      "colorscheme": "catppuccin-frappe",
+      "plugin": "catppuccin/nvim",
+      "plugin_name": "catppuccin"
+    },
     "palette": {
       "background": "#303446",
       "foreground": "#c6d0f5",
@@ -76,7 +92,15 @@
     "name": "Catppuccin Macchiato",
     "family": "Catppuccin",
     "mode": "dark",
-    "tmux": { "kind": "catppuccin_flavour", "value": "macchiato" },
+    "tmux": {
+      "kind": "catppuccin_flavour",
+      "value": "macchiato"
+    },
+    "nvim": {
+      "colorscheme": "catppuccin-macchiato",
+      "plugin": "catppuccin/nvim",
+      "plugin_name": "catppuccin"
+    },
     "palette": {
       "background": "#24273a",
       "foreground": "#cad3f5",
@@ -112,7 +136,15 @@
     "name": "Catppuccin Mocha",
     "family": "Catppuccin",
     "mode": "dark",
-    "tmux": { "kind": "catppuccin_flavour", "value": "mocha" },
+    "tmux": {
+      "kind": "catppuccin_flavour",
+      "value": "mocha"
+    },
+    "nvim": {
+      "colorscheme": "catppuccin-mocha",
+      "plugin": "catppuccin/nvim",
+      "plugin_name": "catppuccin"
+    },
     "palette": {
       "background": "#1e1e2e",
       "foreground": "#cdd6f4",
@@ -148,7 +180,14 @@
     "name": "Dracula",
     "family": "Dracula",
     "mode": "dark",
-    "tmux": { "kind": "palette" },
+    "tmux": {
+      "kind": "palette"
+    },
+    "nvim": {
+      "colorscheme": "dracula",
+      "plugin": "Mofiqul/dracula.nvim",
+      "plugin_name": "dracula.nvim"
+    },
     "palette": {
       "background": "#282a36",
       "foreground": "#f8f8f2",
@@ -184,7 +223,14 @@
     "name": "Tokyo Night",
     "family": "Tokyo Night",
     "mode": "dark",
-    "tmux": { "kind": "palette" },
+    "tmux": {
+      "kind": "palette"
+    },
+    "nvim": {
+      "colorscheme": "tokyonight-night",
+      "plugin": "folke/tokyonight.nvim",
+      "plugin_name": "tokyonight.nvim"
+    },
     "palette": {
       "background": "#1a1b26",
       "foreground": "#c0caf5",
@@ -220,7 +266,14 @@
     "name": "Nord",
     "family": "Nord",
     "mode": "dark",
-    "tmux": { "kind": "palette" },
+    "tmux": {
+      "kind": "palette"
+    },
+    "nvim": {
+      "colorscheme": "nord",
+      "plugin": "shaunsingh/nord.nvim",
+      "plugin_name": "nord.nvim"
+    },
     "palette": {
       "background": "#2e3440",
       "foreground": "#d8dee9",
@@ -256,7 +309,14 @@
     "name": "Gruvbox Dark",
     "family": "Gruvbox",
     "mode": "dark",
-    "tmux": { "kind": "palette" },
+    "tmux": {
+      "kind": "palette"
+    },
+    "nvim": {
+      "colorscheme": "gruvbox",
+      "plugin": "ellisonleao/gruvbox.nvim",
+      "plugin_name": "gruvbox.nvim"
+    },
     "palette": {
       "background": "#282828",
       "foreground": "#ebdbb2",
@@ -292,7 +352,14 @@
     "name": "Gruvbox Light",
     "family": "Gruvbox",
     "mode": "light",
-    "tmux": { "kind": "palette" },
+    "tmux": {
+      "kind": "palette"
+    },
+    "nvim": {
+      "colorscheme": "gruvbox",
+      "plugin": "ellisonleao/gruvbox.nvim",
+      "plugin_name": "gruvbox.nvim"
+    },
     "palette": {
       "background": "#fbf1c7",
       "foreground": "#3c3836",
@@ -328,7 +395,14 @@
     "name": "Solarized Dark",
     "family": "Solarized",
     "mode": "dark",
-    "tmux": { "kind": "palette" },
+    "tmux": {
+      "kind": "palette"
+    },
+    "nvim": {
+      "colorscheme": "solarized",
+      "plugin": "maxmx03/solarized.nvim",
+      "plugin_name": "solarized.nvim"
+    },
     "palette": {
       "background": "#002b36",
       "foreground": "#93a1a1",
@@ -364,7 +438,14 @@
     "name": "Solarized Light",
     "family": "Solarized",
     "mode": "light",
-    "tmux": { "kind": "palette" },
+    "tmux": {
+      "kind": "palette"
+    },
+    "nvim": {
+      "colorscheme": "solarized",
+      "plugin": "maxmx03/solarized.nvim",
+      "plugin_name": "solarized.nvim"
+    },
     "palette": {
       "background": "#fdf6e3",
       "foreground": "#586e75",
@@ -400,7 +481,14 @@
     "name": "Rose Pine Dawn",
     "family": "Rose Pine",
     "mode": "light",
-    "tmux": { "kind": "palette" },
+    "tmux": {
+      "kind": "palette"
+    },
+    "nvim": {
+      "colorscheme": "rose-pine-dawn",
+      "plugin": "rose-pine/neovim",
+      "plugin_name": "rose-pine"
+    },
     "palette": {
       "background": "#faf4ed",
       "foreground": "#575279",

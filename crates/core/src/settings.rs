@@ -18,6 +18,13 @@ pub struct Settings {
     pub dark_theme: String,
     /// Which targets are switched on.
     pub enabled: Vec<String>,
+    /// Every target this settings file has seen.
+    ///
+    /// Without this there is no way to tell a target the user switched off from
+    /// one that did not exist when they last saved. A new target would arrive
+    /// switched off and quietly do nothing, which is the opposite of what
+    /// adding it was for.
+    pub known: Vec<String>,
     pub options: ApplyOptions,
 }
 
@@ -30,6 +37,7 @@ impl Default for Settings {
             light_theme: "catppuccin-latte".to_string(),
             dark_theme: "catppuccin-mocha".to_string(),
             enabled: targets::ALL.iter().map(|id| id.to_string()).collect(),
+            known: targets::ALL.iter().map(|id| id.to_string()).collect(),
             options: ApplyOptions::default(),
         }
     }
@@ -52,7 +60,22 @@ impl Settings {
         let Ok(text) = fs::read_to_string(path) else {
             return Self::default();
         };
-        serde_json::from_str(&text).unwrap_or_default()
+        let mut settings: Self = serde_json::from_str(&text).unwrap_or_default();
+        settings.adopt_new_targets();
+        settings
+    }
+
+    /// Switches on any target this settings file has not seen before.
+    ///
+    /// A target added after the file was written is not one the user chose to
+    /// turn off, so it starts on, like it would for someone installing today.
+    fn adopt_new_targets(&mut self) {
+        for id in targets::ALL {
+            if !self.known.iter().any(|seen| seen == id) {
+                self.known.push(id.to_string());
+                self.enabled.push(id.to_string());
+            }
+        }
     }
 
     pub fn save(&self) -> Result<()> {
@@ -134,6 +157,59 @@ mod tests {
         let settings: Settings = serde_json::from_str(r#"{"theme": "nord"}"#).unwrap();
         assert_eq!(settings.theme.as_deref(), Some("nord"));
         assert_eq!(settings.dark_theme, "catppuccin-mocha");
+        assert_eq!(settings.enabled.len(), targets::ALL.len());
+    }
+
+    #[test]
+    fn a_target_added_later_arrives_switched_on() {
+        // Exactly the shape a settings file written before Neovim existed has.
+        let mut settings = Settings {
+            enabled: vec!["iterm2".into(), "tmux".into()],
+            known: vec!["iterm2".into(), "tmux".into()],
+            ..Settings::default()
+        };
+        settings.adopt_new_targets();
+
+        assert!(
+            settings.enabled.iter().any(|id| id == "nvim"),
+            "a new target must not arrive silently switched off"
+        );
+        assert!(settings.known.iter().any(|id| id == "nvim"));
+    }
+
+    #[test]
+    fn a_target_the_user_switched_off_stays_off() {
+        // Known but not enabled is a deliberate choice, and must be respected.
+        let mut settings = Settings {
+            enabled: vec!["iterm2".into()],
+            known: targets::ALL.iter().map(|id| id.to_string()).collect(),
+            ..Settings::default()
+        };
+        settings.adopt_new_targets();
+
+        assert_eq!(settings.enabled, vec!["iterm2".to_string()]);
+    }
+
+    #[test]
+    fn adopting_twice_does_not_duplicate() {
+        let mut settings = Settings {
+            enabled: vec![],
+            known: vec![],
+            ..Settings::default()
+        };
+        settings.adopt_new_targets();
+        let once = settings.enabled.clone();
+        settings.adopt_new_targets();
+        assert_eq!(settings.enabled, once);
+        assert_eq!(settings.enabled.len(), targets::ALL.len());
+    }
+
+    #[test]
+    fn an_old_file_without_a_known_list_enables_everything() {
+        // `known` defaults to empty when absent, so every target is "new".
+        let mut settings: Settings =
+            serde_json::from_str(r#"{"enabled": [], "known": []}"#).unwrap();
+        settings.adopt_new_targets();
         assert_eq!(settings.enabled.len(), targets::ALL.len());
     }
 

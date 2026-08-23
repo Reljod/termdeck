@@ -1,10 +1,11 @@
 # TermDeck
 
-One toggle that puts iTerm2, tmux, zsh and Claude Code on the same theme.
+One toggle that puts iTerm2, tmux, zsh, Neovim and Claude Code on the same
+theme.
 
-Changing terminal themes by hand means editing four different things in four
+Changing terminal themes by hand means editing five different things in five
 different formats, and forgetting one of them is what makes the result look
-wrong. TermDeck does all four together and tells you honestly which ones took
+wrong. TermDeck does all five together and tells you honestly which ones took
 effect immediately and which need a nudge.
 
 ## What it changes
@@ -14,6 +15,7 @@ effect immediately and which need a nudge.
 | **iTerm2** | the preferences plist it actually loads, including a custom prefs folder | AppleScript recolours every open session immediately; the palette is written to the plist for new windows |
 | **tmux** | `~/.tmux.conf` | the catppuccin plugin's flavour, or an explicit status line for other themes, then `tmux source-file` |
 | **zsh** | `~/.config/termdeck/zsh-theme.zsh`, plus one line in `~/.zshrc` | powerlevel10k prompt colours and the fzf palette |
+| **Neovim** | `~/.config/nvim/lua/termdeck.lua`, plus one line in `init.lua` | `background` and `colorscheme`; open editors are recoloured over their own socket |
 | **Claude Code** | `settings.json` in every `~/.claude*` profile | the theme's light or dark mode |
 
 Claude Code has no palette to configure, so a theme only decides whether it runs
@@ -27,6 +29,13 @@ approximately.
 Catppuccin (Latte, Frappé, Macchiato, Mocha), Dracula, Tokyo Night, Nord,
 Gruvbox light and dark, Solarized light and dark, and Rosé Pine Dawn. Each one
 carries a full sixteen-slot ANSI palette rather than just a background colour.
+
+Neovim colourschemes come from plugins, so a theme also names the plugin that
+provides its colourscheme. When that plugin is not installed, TermDeck picks the
+nearest catppuccin flavour of the same lightness instead and says so in the
+result, rather than asking Neovim for a colourscheme that does not exist. With
+only `catppuccin` and `tokyonight.nvim` installed — the usual LazyVim starting
+point — six of the twelve themes match exactly and the rest substitute.
 
 The toggle switches between one light and one dark theme, both of which you
 pick. It defaults to Latte and Mocha.
@@ -74,6 +83,14 @@ plugin reads it. Themes with no catppuccin flavour get a second block *after*
 that line, since anything meant to override a plugin has to come after it. The
 zsh block goes at the end of `.zshrc`, after `~/.p10k.zsh` is sourced, because
 the last assignment to a `POWERLEVEL9K_*` variable is the one the prompt uses.
+The Neovim block goes at the end of `init.lua`, after `require("config.lazy")`,
+because lazy.nvim loads plugins synchronously during that call and LazyVim sets
+its own colourscheme while it does — running earlier would just be overwritten.
+
+Blocks are commented the way their file expects: `#` for tmux and zsh, `--` for
+Lua. A `#` in `init.lua` is a syntax error, so Neovim would fail to start rather
+than merely look wrong. Finding a block matches on the marker text alone, so the
+comment style only affects writing.
 
 ## What "applied" and "pending" mean
 
@@ -86,6 +103,9 @@ distinguishes them rather than saying "done" to everything:
   applying, or set Settings → General → Preferences → Save changes to
   "Manually". The app says so when iTerm2 is running.
 - **tmux** reloads open sessions right away.
+- **Neovim** recolours editors that are already open, over the socket every
+  instance has listened on since 0.10. If none are running it applies at next
+  launch.
 - **zsh** cannot be reached from outside a running shell. Open a new one, or run
   `source ~/.config/termdeck/zsh-theme.zsh`.
 - **Claude Code** reads its theme at startup, so restart a running session.
@@ -93,13 +113,13 @@ distinguishes them rather than saying "done" to everything:
 ## Layout
 
 ```
-crates/core/     the theme model and the four adapters — no Tauri, fully tested
+crates/core/     the theme model and the five adapters — no Tauri, fully tested
 src-tauri/       a thin Tauri command layer over the above
 src/             the React interface
 ```
 
 The logic lives in `crates/core` precisely so it can be tested without a window.
-`cargo test --workspace` runs 111 tests, including one that applies themes to a
+`cargo test --workspace` runs 134 tests, including one that applies themes to a
 throwaway home directory and one that round-trips a real iTerm2 preferences
 file.
 

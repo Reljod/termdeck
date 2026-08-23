@@ -143,7 +143,7 @@ export default function App() {
         <div>
           <h1>TermDeck</h1>
           <p className="header__sub">
-            iTerm2, tmux, zsh and Claude Code, kept on one theme.
+            iTerm2, tmux, zsh, Neovim and Claude Code, kept on one theme.
           </p>
         </div>
 

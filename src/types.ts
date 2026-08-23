@@ -34,12 +34,19 @@ export interface Palette {
   ansi: Ansi;
 }
 
+export interface NvimStyle {
+  colorscheme: string;
+  plugin: string;
+  plugin_name: string;
+}
+
 export interface Theme {
   id: string;
   name: string;
   family: string;
   mode: Mode;
   tmux: { kind: "catppuccin_flavour"; value: string } | { kind: "palette" };
+  nvim: NvimStyle;
   palette: Palette;
 }
 
@@ -63,6 +70,8 @@ export interface Settings {
   light_theme: string;
   dark_theme: string;
   enabled: string[];
+  /** Every target this settings file has seen; drives the new-target default. */
+  known: string[];
   options: ApplyOptions;
 }
 
