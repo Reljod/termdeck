@@ -18,7 +18,7 @@
 ![Size](https://img.shields.io/badge/app-10%20MB-blue)
 ![Telemetry](https://img.shields.io/badge/telemetry-none-lightgrey)
 ![Themes](https://img.shields.io/badge/themes-12-8839EF)
-![License](https://img.shields.io/badge/license-MIT-green)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 <br>
 
@@ -232,4 +232,4 @@ than being reported as not installed.
 
 ## License
 
-MIT.
+[MIT](LICENSE) © Reljod Oreta
